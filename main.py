@@ -21,6 +21,7 @@ class Personagem(pygame.sprite.Sprite):
         # Cria um dicionário para armazenar as animações.
         # Cada chave representa um estado (ex: 'parado', 'andando')
         # e o valor é uma lista com os frames da animação.
+        
         self.animacoes = {
             'parado': [],
             'andando': []
@@ -28,14 +29,14 @@ class Personagem(pygame.sprite.Sprite):
         
         # Carrega os frames da animação 'parado'
         for i in range(2):
-            img = spriteSheet.subsurface((i * 49, 0), (49, 32))
+            img = spriteSheet.subsurface((i * 32, 0), (32, 32))
             img = pygame.transform.scale(img, (49 * 3, 32 * 3))
             self.animacoes['parado'].append(img)
             
         # Carrega os frames da animação 'andando'
         # Supondo que os frames de "andando" estejam na segunda linha do spritesheet.
         for i in range(2):
-            img = spriteSheet.subsurface((i * 49, 32), (49, 32))
+            img = spriteSheet.subsurface((i * 32, 32), (49, 32))
             img = pygame.transform.scale(img, (49 * 3, 32 * 3))
             self.animacoes['andando'].append(img)
         
