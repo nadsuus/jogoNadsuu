@@ -1,0 +1,12 @@
+{
+    "platforms": [
+      {"x": 300, "y": 345, "width": 200, "height": 20},
+      {"x": 400, "y": 340, "width": 50, "height": 20}
+    ],
+    "holes": [
+      {"x": 200, "y": 340, "width": 200, "height": 100}
+    ],
+    "falling_stones": [
+      {"x": 500, "y": -50, "width": 40, "height": 40, "speed": 150}
+    ]
+  }
