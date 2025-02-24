@@ -3,60 +3,22 @@ import sys
 import os
 import json
 
-# --------------------------------------------------
-# CONFIGURAÇÃO DE DIRETÓRIOS
-# --------------------------------------------------
-diretorioPrincipal = os.path.dirname(__file__)
-diretorioImg = os.path.join(diretorioPrincipal, 'img')
-diretorioSons = os.path.join(diretorioPrincipal, 'sons')
+# Configurações Globais
+SCREEN_WIDTH, SCREEN_HEIGHT = 940, 360
+FPS = 30
 
 # --------------------------------------------------
-# INICIALIZAÇÃO DO PYGAME E DO MIXER DE SONS
-# --------------------------------------------------
-pygame.init()
-pygame.mixer.init()
-# musica_path = os.path.join(diretorioSons, 'musicaPrincipal.wav')
-# pygame.mixer.music.load(musica_path)
-# pygame.mixer.music.play(-1)
-
-# --------------------------------------------------
-# CONFIGURAÇÃO DA TELA E VARIÁVEIS GLOBAIS
-# --------------------------------------------------
-screen_width, screen_height = 940, 360
-screen = pygame.display.set_mode((screen_width, screen_height))
-pygame.display.set_caption("Nadsuu Adventure")
-clock = pygame.time.Clock()
-pontuacao = 0
-
-# Estado do jogo: "menu", "playing", "game_over"
-state = "menu"
-
-# --------------------------------------------------
-# CARREGA O CENÁRIO PARALLAX (8 camadas)
-# --------------------------------------------------
-camadas = []
-for i in range(1, 9):
-    caminho_imagem = os.path.join(diretorioImg, f"camada{i}.png")
-    imagem = pygame.image.load(caminho_imagem).convert_alpha()
-    camadas.append(imagem)
-
-# Inicializa as posições horizontais para cada camada
-x_positions = [0 for _ in range(len(camadas))]
-speeds = [20, 40, 60, 80, 100, 120, 140, 160]
-
-# --------------------------------------------------
-# CARREGA O SPRITESHEET DO PERSONAGEM
-# --------------------------------------------------
-spriteSheet = pygame.image.load(os.path.join(diretorioImg, 'global.png')).convert_alpha()
-
-# --------------------------------------------------
-# CLASSE PERSONAGEM (JOGADOR)
+# CLASSES DOS PERSONAGENS
 # --------------------------------------------------
 class Personagem(pygame.sprite.Sprite):
-    def __init__(self):
-        pygame.sprite.Sprite.__init__(self)
+    def __init__(self, spriteSheet, screen_height):
+        super().__init__()
         self.vidas = 3
-        # Dicionário para armazenar as animações (estados) do personagem
+        self.estaOlhandoParaDireita = True
+        self.falling = True
+        self.is_jumping = False
+
+        # Animações do personagem
         self.animacoes = {
             'parado': [],
             'correndo': [],
@@ -64,115 +26,87 @@ class Personagem(pygame.sprite.Sprite):
             'atacando': [],
             'morrendo': []
         }
-        
-        largura_frame = 32   # Largura original do frame no spritesheet
-        altura_frame = 32    # Altura original do frame no spritesheet
-        escala = 3           # Fator de escala para aumentar o tamanho do sprite
-        
-        # Animação PARADO (linha 0, 2 frames)
-        for i in range(2):
-            x = i * largura_frame
-            y = 0
-            img = spriteSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes['parado'].append(img)
-        
-        # --------------------
-        # Animação CORRENDO (linha 1, 2 frames)
-        for i in range(2):
-            x = i * largura_frame
-            y = altura_frame
-            img = spriteSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes['correndo'].append(img)
-        
-        # --------------------
-        # Animação SALTANDO (linha 2, 4 frames)
-        for i in range(4):
-            x = i * largura_frame
-            y = 2 * altura_frame
-            img = spriteSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes['saltando'].append(img)
-        
-        # --------------------
-        # Animação ATACANDO (linha 3, 2 frames)
-        for i in range(2):
-            x = i * largura_frame
-            y = 3 * altura_frame
-            img = spriteSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes['atacando'].append(img)
-        
-        # --------------------
-        # Animação MORRENDO (linha 4, 2 frames)
-        for i in range(2):
-            x = i * largura_frame
-            y = 4 * altura_frame
-            img = spriteSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes['morrendo'].append(img)
-        
+        largura_frame = 32
+        altura_frame = 32
+        escala = 3
+
+        for estado, linha, num_frames in [
+            ('parado', 0, 2),
+            ('correndo', 1, 2),
+            ('saltando', 2, 3),
+            ('atacando', 3, 4),
+            ('morrendo', 4, 2)
+        ]:
+            for i in range(num_frames):
+                x = i * largura_frame
+                y = linha * altura_frame
+                img = spriteSheet.subsurface((x, y), (largura_frame, altura_frame))
+                img = pygame.transform.scale(img, (largura_frame * escala, altura_frame * escala))
+                self.animacoes[estado].append(img)
+
         self.estado_atual = 'parado'
         self.index = 0
         self.image = self.animacoes[self.estado_atual][int(self.index)]
-        self.rect = self.image.get_rect()
-        # Define uma posição inicial "segura" para o personagem
-        self.rect.center = (100, 100)
-        
-        # Atributo para definir a direção do personagem (True = direita, False = esquerda)
-        self.facing_right = True
-        
-        # Configuração para gravidade e movimento vertical (usando vetores)
+        self.rect = self.image.get_rect(center=(100, 100))
+
+        # Física
         self.pos = pygame.math.Vector2(self.rect.x, self.rect.y)
         self.vel = pygame.math.Vector2(0, 0)
         self.gravity = 1000
-        self.ground_y = screen_height - 115
-        
+        self.jump_force = -300
+
+        # Timer para ignorar colisões após o pulo
+        self.ignore_collision_timer = 0
+
     def update(self, dt):
-        # Atualiza a animação com base no delta time
-        velocidade_animacao = 5
+        self.old_y = self.pos.y  # Salva a posição vertical antiga
+
+        if self.ignore_collision_timer > 0:
+            self.ignore_collision_timer -= dt
+
+        # Atualiza animação
+        velocidade_animacao = 15 if self.estado_atual == 'atacando' else 8
         self.index += velocidade_animacao * dt
         if self.index >= len(self.animacoes[self.estado_atual]):
+            if self.estado_atual == 'atacando':
+                self.set_estado('parado')
             self.index = 0
-        self.image = self.animacoes[self.estado_atual][int(self.index)]
-        
-        # Inverte a imagem se o personagem não estiver olhando para a direita
-        if not self.facing_right:
-            self.image = pygame.transform.flip(self.image, True, False)
-        
-        # Atualiza a velocidade e a posição vertical aplicando a gravidade
-        self.vel.y += self.gravity * dt
-        self.pos.y += self.vel.y * dt
-        
-        # Se o personagem atingir o chão, fixa a posição e zera a velocidade vertical
-        if self.pos.y > self.ground_y:
-            self.pos.y = self.ground_y
-            self.vel.y = 0
+
+        frame = self.animacoes[self.estado_atual][int(self.index)]
+        if not self.estaOlhandoParaDireita:
+            frame = pygame.transform.flip(frame, True, False)
+        self.image = frame
+
+        # Aplica física (gravidade e pulo)
+        if self.falling or self.is_jumping:
+            self.vel.y += self.gravity * dt
+            self.pos.y += self.vel.y * dt
 
         self.rect.y = int(self.pos.y)
-        
-        # Verifica condição de Game Over (vidas <= 0)
+
         if self.vidas <= 0:
             self.set_estado('morrendo')
-            print("Game Over!")
-            
+
     def set_estado(self, novo_estado):
         if novo_estado in self.animacoes and novo_estado != self.estado_atual:
             self.estado_atual = novo_estado
             self.index = 0
 
+    def pular(self):
+        if not self.is_jumping and not self.falling:
+            self.is_jumping = True
+            self.ignore_collision_timer = 0.5  # Ignorar colisões por 0.5s
+            self.pos.y -= 30  # Eleva o personagem para "descolar" da plataforma
+            self.vel.y = self.jump_force
+            self.set_estado('saltando')
+            print("Pulando")
 
-# --------------------------------------------------
-# CLASSE DO INIMIGO "SKELETON" COM IA BÁSICA E VIRADA DE IMAGEM
-# --------------------------------------------------
-class Skeleton(pygame.sprite.Sprite):
-    def __init__(self):
-        pygame.sprite.Sprite.__init__(self)
-        skeleton_path = os.path.join(diretorioImg, "Skeleton", "GlobalSkeleton.png")
-        self.skeletonSheet = pygame.image.load(skeleton_path).convert_alpha()
-        
-        # Dicionário para armazenar as animações do Skeleton
+
+class Esqueleto(pygame.sprite.Sprite):
+    def __init__(self, diretorioImg, screen_height):
+        super().__init__()
+        caminho_esqueleto = os.path.join(diretorioImg, "Skeleton", "GlobalSkeleton.png")
+        self.skeletonSheet = pygame.image.load(caminho_esqueleto).convert_alpha()
         self.animacoes = {
             "attack": [],
             "death": [],
@@ -181,91 +115,48 @@ class Skeleton(pygame.sprite.Sprite):
             "take_hit": [],
             "walk": []
         }
-        largura_frame = 64   # Largura do frame original do Skeleton
-        altura_frame = 64    # Altura do frame original do Skeleton
-        escala = 1.8         # Fator de escala para aumentar o tamanho do Skeleton
-        
-        # --------------------
-        # Linha 0: Animação "attack" (8 frames)
-        for i in range(8):
-            x = i * largura_frame
-            y = 0
-            img = self.skeletonSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes["attack"].append(img)
-        
-        # --------------------
-        # Linha 1: Animação "death" (4 frames)
-        for i in range(4):
-            x = i * largura_frame
-            y = altura_frame
-            img = self.skeletonSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes["death"].append(img)
-        
-        # --------------------
-        # Linha 2: Animação "idle" (4 frames)
-        for i in range(4):
-            x = i * largura_frame
-            y = 2 * altura_frame
-            img = self.skeletonSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes["idle"].append(img)
-        
-        # --------------------
-        # Linha 3: Animação "shield" (4 frames)
-        for i in range(4):
-            x = i * largura_frame
-            y = 3 * altura_frame
-            img = self.skeletonSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes["shield"].append(img)
-        
-        # --------------------
-        # Linha 4: Animação "take_hit" (4 frames)
-        for i in range(4):
-            x = i * largura_frame
-            y = 4 * altura_frame
-            img = self.skeletonSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes["take_hit"].append(img)
-        
-        # --------------------
-        # Linha 5: Animação "walk" (4 frames)
-        for i in range(4):
-            x = i * largura_frame
-            y = 5 * altura_frame
-            img = self.skeletonSheet.subsurface((x, y), (largura_frame, altura_frame))
-            img = pygame.transform.scale(img, (largura_frame*escala, altura_frame*escala))
-            self.animacoes["walk"].append(img)
-        
-        # Estado inicial do Skeleton: idle
+        largura_frame = 64
+        altura_frame = 64
+        escala = 1.8
+
+        for estado, linha, num_frames in [
+            ("attack", 0, 8),
+            ("death", 1, 4),
+            ("idle", 2, 4),
+            ("shield", 3, 4),
+            ("take_hit", 4, 4),
+            ("walk", 5, 4)
+        ]:
+            for i in range(num_frames):
+                x = i * largura_frame
+                y = linha * altura_frame
+                img = self.skeletonSheet.subsurface((x, y), (largura_frame, altura_frame))
+                img = pygame.transform.scale(img, (int(largura_frame * escala), int(altura_frame * escala)))
+                self.animacoes[estado].append(img)
+
         self.estado_atual = "idle"
         self.index = 0
         self.image = self.animacoes[self.estado_atual][int(self.index)]
-        self.rect = self.image.get_rect()
-        self.rect.midbottom = (400, screen_height - 18)
-        self.animation_speed = 5  # Velocidade da animação
-        
-        # Define a vida do inimigo e o timer de invulnerabilidade
+        self.rect = self.image.get_rect(midbottom=(400, screen_height - 18))
+        self.animation_speed = 5
         self.health = 100
         self.invulnerable_timer = 0
-        
-    def take_damage(self, damage):
+        self.damage_cooldown = 0
+
+    def receber_dano(self, dano):
         if self.invulnerable_timer > 0:
             return
-        self.health -= damage
-        print("Skeleton took damage! Health:", self.health)
+        self.health -= dano
+        print("Esqueleto recebeu dano! Vida:", self.health)
         if self.health <= 0:
             self.estado_atual = "death"
         else:
             self.estado_atual = "take_hit"
             self.animation_speed = 10
             self.invulnerable_timer = 0.5
-        
+
     def update(self, dt):
-        # IA: Persegue o jogador
-        distancia = prota.rect.centerx - self.rect.centerx
+        distancia = jogo.player.rect.centerx - self.rect.centerx
         if self.estado_atual not in ["death", "take_hit"]:
             if abs(distancia) < 300:
                 self.estado_atual = "walk"
@@ -279,15 +170,14 @@ class Skeleton(pygame.sprite.Sprite):
                     self.rect.x += velocidade_perseguicao * dt
                 else:
                     self.rect.x -= velocidade_perseguicao * dt
-        
+
         if self.invulnerable_timer > 0:
             self.invulnerable_timer -= dt
+            if self.damage_cooldown > 0:
+                self.damage_cooldown -= dt
         if self.damage_cooldown > 0:
             self.damage_cooldown -= dt
-        
-        if self.damage_cooldown > 0:
-            self.damage_cooldown -= dt
-        
+
         self.index += self.animation_speed * dt
         if self.index >= len(self.animacoes[self.estado_atual]):
             if self.estado_atual == "death":
@@ -297,246 +187,269 @@ class Skeleton(pygame.sprite.Sprite):
             if self.estado_atual == "take_hit" and self.health > 0:
                 self.estado_atual = "idle"
         self.image = self.animacoes[self.estado_atual][int(self.index)]
-        
-        # Vira a imagem conforme a posição do jogador
-        if prota.rect.centerx < self.rect.centerx:
+        if jogo.player.rect.centerx < self.rect.centerx:
             self.image = pygame.transform.flip(self.image, True, False)
 
 # --------------------------------------------------
-# CLASSES PARA OBJETOS DO MAPA (USANDO JSON)
+# CLASSES DOS ELEMENTOS DO MAPA
 # --------------------------------------------------
 class Plataforma(pygame.sprite.Sprite):
-    def __init__(self, x, y, width, height):
-        pygame.sprite.Sprite.__init__(self)
-        self.image = pygame.Surface((width, height))
+    def __init__(self, x, y, largura, altura):
+        super().__init__()
+        self.image = pygame.Surface((largura, altura))
         self.image.fill((100, 100, 100))
         self.rect = self.image.get_rect(topleft=(x, y))
 
+class PlataformaBase(pygame.sprite.Sprite):
+    def __init__(self, x, y, largura, altura):
+        super().__init__()
+        self.image = pygame.Surface((largura, altura))
+        self.image.fill((50, 50, 50))
+        self.rect = self.image.get_rect(topleft=(x, y))
+
+# A função de colisão agora usa as coordenadas das plataformas do JSON
+def checar_colisoes_plataforma(jogador, plataformas_normais, plataforma_base, dt):
+    # Se o jogador já está no solo (não pulando nem caindo), não verifica colisões
+    if not (jogador.falling or jogador.is_jumping):
+        return
+
+    # Se o timer de ignorar colisões ainda estiver ativo, sai
+    if hasattr(jogador, 'ignore_collision_timer') and jogador.ignore_collision_timer > 0:
+        return
+
+    epsilon = 5  # margem de tolerância
+
+    if jogador.vel.y > 0:
+        estaNoChao = False
+        for plat in plataformas_normais:
+            if jogador.rect.colliderect(plat.rect):
+                if (jogador.old_y + jogador.rect.height) < (plat.rect.top + epsilon) and jogador.rect.bottom >= plat.rect.top:
+                    jogador.pos.y = plat.rect.top - jogador.rect.height
+                    jogador.rect.bottom = plat.rect.top
+                    jogador.vel.y = 0
+                    jogador.falling = False
+                    jogador.is_jumping = False
+                    print("Caindo na plataforma")
+                    estaNoChao = True
+                    break
+        if not estaNoChao and plataforma_base is not None:
+            if jogador.rect.colliderect(plataforma_base.rect):
+                if (jogador.old_y + jogador.rect.height) < (plataforma_base.rect.top + epsilon) and jogador.rect.bottom >= plataforma_base.rect.top:
+                    jogador.pos.y = plataforma_base.rect.top - jogador.rect.height
+                    jogador.rect.bottom = plataforma_base.rect.top
+                    jogador.vel.y = 0
+                    jogador.falling = False
+                    print("Caindo na base")
+                    estaNoChao = True
+
+        # Se o jogador não colidiu com nenhuma plataforma, ele continua caindo
+        if not estaNoChao:
+            jogador.falling = True
+
 class Buraco(pygame.sprite.Sprite):
-    def __init__(self, x, y, width, height):
-        pygame.sprite.Sprite.__init__(self)
-        self.image = pygame.Surface((width, height))
-        self.image.fill((21, 24, 38))  # Altere os valores RGB para mudar a cor do buraco
+    def __init__(self, x, y, largura, altura):
+        super().__init__()
+        self.image = pygame.Surface((largura, altura))
+        self.image.fill((0, 0, 0))
         self.rect = self.image.get_rect(topleft=(x, y))
 
 class PedraCaindo(pygame.sprite.Sprite):
-    def __init__(self, x, y, width, height, speed):
-        pygame.sprite.Sprite.__init__(self)
-        self.image = pygame.Surface((width, height))
-        self.image.fill((150, 150, 150))
+    def __init__(self, x, y, largura, altura, velocidade):
+        super().__init__()
+        self.image = pygame.Surface((largura, altura))
+        self.image.fill((100, 100, 100))
         self.rect = self.image.get_rect(topleft=(x, y))
-        self.speed = speed
+        self.velocidade = velocidade
 
     def update(self, dt):
-        self.rect.y += self.speed * dt
-        if self.rect.top > screen_height:
+        self.rect.y += self.velocidade * dt
+        if self.rect.top > SCREEN_HEIGHT:
             self.kill()
 
-# --------------------------------------------------
-# CLASSE LEVEL (CARREGA JSON)
-# --------------------------------------------------
 class Level:
-    def __init__(self, json_file):
-        with open(json_file, "r") as f:
+    def __init__(self, arquivo_json):
+        with open(arquivo_json, "r") as f:
             self.data = json.load(f)
-        self.platforms = pygame.sprite.Group()
+        self.plataformas_normais = pygame.sprite.Group()
+        self.plataforma_base = None
         self.buracos = pygame.sprite.Group()
         self.pedras = pygame.sprite.Group()
+        
         for p in self.data["platforms"]:
-            plat = Plataforma(p["x"], p["y"], p["width"], p["height"])
-            self.platforms.add(plat)
+            if p["x"] == 0 and p["width"] == SCREEN_WIDTH:
+                self.plataforma_base = PlataformaBase(p["x"], p["y"], p["width"], p["height"])
+            else:
+                self.plataformas_normais.add(Plataforma(p["x"], p["y"], p["width"], p["height"]))
+                
         for h in self.data["holes"]:
-            buraco = Buraco(h["x"], h["y"], h["width"], h["height"])
-            self.buracos.add(buraco)
+            self.buracos.add(Buraco(h["x"], h["y"], h["width"], h["height"]))
         for stone in self.data["falling_stones"]:
-            pedra = PedraCaindo(stone["x"], stone["y"], stone["width"], stone["height"], stone["speed"])
-            self.pedras.add(pedra)
-    def update(self, dt):
-        self.platforms.update(dt)
-        self.buracos.update(dt)
-        self.pedras.update(dt)
-    def draw(self, surface, camera_offset=0):
-        for plat in self.platforms:
-            surface.blit(plat.image, (plat.rect.x - camera_offset, plat.rect.y))
-        for buraco in self.buracos:
-            surface.blit(buraco.image, (buraco.rect.x - camera_offset, buraco.rect.y))
-        for pedra in self.pedras:
-            surface.blit(pedra.image, (pedra.rect.x - camera_offset, pedra.rect.y))
+            self.pedras.add(PedraCaindo(stone["x"], stone["y"], stone["width"], stone["height"], stone["speed"]))
 
 # --------------------------------------------------
-# FUNÇÃO PARA CHECAR COLISÕES COM PLATAFORMAS
+# CLASSE PRINCIPAL DO JOGO
 # --------------------------------------------------
-def check_collisions(player, platforms):
-    player_on_platform = False  # Flag para verificar se o jogador está em uma plataforma
+class Jogo:
+    def __init__(self):
+        self.diretorioPrincipal = os.path.dirname(__file__)
+        self.diretorioImg = os.path.join(self.diretorioPrincipal, 'img')
+        self.diretorioSons = os.path.join(self.diretorioPrincipal, 'sons')
+        pygame.init()
+        pygame.mixer.init()
+        self.tela = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("Nadsuu Adventure")
+        self.relogio = pygame.time.Clock()
+        self.fase = 1
+        self.carregar_recursos()
+        self.criar_objetos()
+        self.reiniciar_jogo()
+        self.estado = "menu"
 
-    for plat in platforms:
-        # Verifica se o jogador está caindo e colidiu com a plataforma
-        if player.vel.y > 0 and player.rect.colliderect(plat.rect):
-            if (player.old_y + player.rect.height) <= plat.rect.top:
-                # Posiciona o jogador exatamente em cima da plataforma
-                player.pos.y = plat.rect.top
-                player.rect.bottom = plat.rect.top
-                player.vel.y = 0
-                player.falling = False
-                player_on_platform = True
-                break  # Sai do loop após a primeira colisão
+    def carregar_recursos(self):
+        self.camadas = []
+        self.posicoes_x = []
+        self.velocidades = [20, 40, 60, 80, 100, 120, 140, 160]
+        for i in range(1, 9):
+            caminho_imagem = os.path.join(self.diretorioImg, f"camada{i}.png")
+            imagem = pygame.image.load(caminho_imagem).convert_alpha()
+            self.camadas.append(imagem)
+            self.posicoes_x.append(0)
+        self.spriteSheet = pygame.image.load(os.path.join(self.diretorioImg, 'global.png')).convert_alpha()
 
-    # Se não estiver em nenhuma plataforma, define que o jogador está no ar
-    if not player_on_platform:
-        player.falling = True
-    # Impede o jogador de atravessar por baixo
-    elif player.vel.y < 0 and player.rect.colliderect(plat.rect):
-        if player.old_y >= plat.rect.bottom:
-            player.pos.y = plat.rect.bottom + 1
-            player.rect.top = plat.rect.bottom + 1
-            player.vel.y = 0
+    def criar_objetos(self):
+        self.grupoPlayer = pygame.sprite.Group()
+        self.grupoInimigo = pygame.sprite.Group()
+        self.level = self.carregar_fase(self.fase)
 
-
-
-# --------------------------------------------------
-# FUNÇÃO PARA CHECAR SE O PLAYER CAIU NO BURACO
-# --------------------------------------------------
-def check_holes(player, holes):
-    # Verifica se o centro do player está dentro do intervalo horizontal de algum buraco
-    falling = False
-    for buraco in holes:
-        if player.rect.centerx >= buraco.rect.left and player.rect.centerx <= buraco.rect.right:
-            # Se o player estiver acima do buraco (próximo do topo) e não estiver colidindo com uma plataforma
-            if player.rect.bottom >= buraco.rect.top:
-                falling = True
-                break
-    player.falling = falling
-
-# --------------------------------------------------
-# CARREGA O MAPA A PARTIR DO JSON
-# --------------------------------------------------
-level = Level(os.path.join(diretorioPrincipal, "level1.json"))
-
-# --------------------------------------------------
-# FUNÇÃO PARA REINICIAR O JOGO
-# --------------------------------------------------
-def reset_game():
-    global prota, skeleton, globalPlayer, globalInimigo, x_positions, pontuacao, game_over, level
-    pontuacao = 0
-    prota = Personagem()
-    globalPlayer.empty()
-    globalPlayer.add(prota)
-    skeleton = Skeleton()
-    globalInimigo.empty()
-    globalInimigo.add(skeleton)
-    x_positions = [0 for _ in range(len(camadas))]
-    level = Level(os.path.join(diretorioPrincipal, "level1.json"))
-    game_over = False
-
-# --------------------------------------------------
-# CRIAÇÃO DOS GRUPOS DE SPRITES
-# --------------------------------------------------
-globalPlayer = pygame.sprite.Group()
-globalInimigo = pygame.sprite.Group()
-
-prota = Personagem()
-globalPlayer.add(prota)
-
-skeleton = Skeleton()
-globalInimigo.add(skeleton)
-
-game_over = False  # Flag para controle do estado do jogo
-
-# --------------------------------------------------
-# LOOP PRINCIPAL DO JOGO
-# --------------------------------------------------
-while True:
-    dt = clock.tick(30) / 1000.0
-    
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
-        # Evento de pulo: se a tecla W for pressionada e o personagem estiver no chão
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_w:
-                if prota.vel.y == 0:
-                    prota.vel.y = -500  # Velocidade inicial do pulo
-                    prota.set_estado('saltando')
-            # Se o jogo estiver em Game Over e o jogador pressionar R, reinicia o jogo
-            if game_over and event.key == pygame.K_r:
-                reset_game()
-                state = "menu"
-    
-    keys = pygame.key.get_pressed()
-    
-    # --------------------------------------------------
-    # CONTROLE DE ESTADO DO PERSONAGEM
-    # --------------------------------------------------
-    if keys[pygame.K_j]:
-        prota.set_estado('atacando')
-    elif keys[pygame.K_a] or keys[pygame.K_d]:
-        if prota.vel.y == 0:
-            prota.set_estado('correndo')
-    else:
-        if prota.vel.y == 0:
-            prota.set_estado('parado')
-    
-    # --------------------------------------------------
-    # MOVIMENTAÇÃO HORIZONTAL DO PERSONAGEM E PARALLAX
-    # --------------------------------------------------
-    min_x = 100
-    max_x = screen_width - 100 - prota.rect.width
-    
-    if keys[pygame.K_a]:
-        prota.facing_right = False
-        if prota.rect.x > min_x:
-            prota.rect.x -= 5
-            prota.pos.x = prota.rect.x
+    def carregar_fase(self, fase):
+        # Carrega um nível diferente dependendo da fase
+        if fase == 1:
+            return Level(os.path.join(self.diretorioPrincipal, "level1.json"))
+        elif fase == 2:
+            return Level(os.path.join(self.diretorioPrincipal, "level2.json"))
         else:
-            for idx, camada in enumerate(camadas):
-                x_positions[idx] += speeds[idx] * dt
-                if x_positions[idx] > 0:
-                    x_positions[idx] = 0
-    if keys[pygame.K_d]:
-        prota.facing_right = True
-        if prota.rect.x < max_x:
-            prota.rect.x += 5
-            prota.pos.x = prota.rect.x
-        else:
-            for idx, camada in enumerate(camadas):
-                x_positions[idx] -= speeds[idx] * dt
-                if x_positions[idx] <= -camadas[idx].get_width():
-                    x_positions[idx] = 0
+            return Level(os.path.join(self.diretorioPrincipal, "level1.json"))
+
+    def reiniciar_jogo(self):
+        self.pontuacao = 0
+        self.game_over = False
+        self.player = Personagem(self.spriteSheet, SCREEN_HEIGHT)
+        self.grupoPlayer.empty()
+        self.grupoPlayer.add(self.player)
+        self.inimigo = Esqueleto(self.diretorioImg, SCREEN_HEIGHT)
+        self.grupoInimigo.empty()
+        self.grupoInimigo.add(self.inimigo)
+        self.posicoes_x = [0 for _ in range(len(self.camadas))]
+
+    def tratar_eventos(self, dt):
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_w:
+                    print("W pressionado")
+                    self.player.pular()
+                if evento.key == pygame.K_j:
+                    self.player.set_estado('atacando')
+                if self.game_over and evento.key == pygame.K_r:
+                    self.reiniciar_jogo()
+                    self.estado = "menu"
+
+        teclas = pygame.key.get_pressed()
+        if self.player.estado_atual != 'atacando':
+            if (teclas[pygame.K_a] or teclas[pygame.K_d]) and not self.player.is_jumping and not self.player.falling:
+                if teclas[pygame.K_a]:
+                    print("Esquerda")
+                elif teclas[pygame.K_d]:
+                    print("Direita")
+                self.player.set_estado('correndo')
+                print("Andando")
+            elif not self.player.is_jumping and not self.player.falling:
+                self.player.set_estado('parado')
+
+        min_x = 100
+        max_x = SCREEN_WIDTH - 100 - self.player.rect.width
+        if teclas[pygame.K_a]:
+            self.player.estaOlhandoParaDireita = False
+            if self.player.rect.x > min_x:
+                self.player.rect.x -= 5
+                self.player.pos.x = self.player.rect.x
+            else:
+                for idx in range(len(self.camadas)):
+                    self.posicoes_x[idx] += self.velocidades[idx] * dt
+                    if self.posicoes_x[idx] > 0:
+                        self.posicoes_x[idx] = 0
+        if teclas[pygame.K_d]:
+            self.player.estaOlhandoParaDireita = True
+            if self.player.rect.x < max_x:
+                self.player.rect.x += 5
+                self.player.pos.x = self.player.rect.x
+            else:
+                for idx in range(len(self.camadas)):
+                    self.posicoes_x[idx] -= self.velocidades[idx] * dt
+                    if self.posicoes_x[idx] <= -self.camadas[idx].get_width():
+                        self.posicoes_x[idx] = 0
+
+    def atualizar(self, dt):
+        self.grupoPlayer.update(dt)
+        self.grupoInimigo.update(dt)
+        checar_colisoes_plataforma(self.player, self.level.plataformas_normais, self.level.plataforma_base, dt)
+        # Se o personagem cair abaixo da tela (buraco), morre
+        if self.player.pos.y > SCREEN_HEIGHT + 100:
+            self.game_over = True
+            print("Caiu no buraco!")
+        # Transição de fase: se o personagem atingir a borda direita, passa para a próxima cena
+        if self.player.rect.x >= SCREEN_WIDTH - 50 and self.fase == 1:
+            self.fase = 2
+            self.level = self.carregar_fase(self.fase)
+            self.player.pos.x = 50
+            self.player.rect.x = 50
+            print("Transição para fase 2")
+        if self.player.vidas <= 0:
+            self.game_over = True
+
+        if self.player.estado_atual == 'atacando' and self.player.rect.colliderect(self.inimigo.rect):
+            self.inimigo.receber_dano(20)
+            self.pontuacao += 20
+
+    def desenhar(self, deslocamento_camera=0):
+        self.tela.fill((255, 255, 255))
+        # Desenha o parallax
+        for idx, camada in enumerate(self.camadas):
+            self.tela.blit(camada, (self.posicoes_x[idx], 0))
+            self.tela.blit(camada, (self.posicoes_x[idx] + camada.get_width(), 0))
+        
+        # Desenha o level: plataforma base, plataformas normais, buracos e pedras
+        if self.level.plataforma_base is not None:
+            self.tela.blit(self.level.plataforma_base.image, (self.level.plataforma_base.rect.x - deslocamento_camera, self.level.plataforma_base.rect.y))
+        for plat in self.level.plataformas_normais:
+            self.tela.blit(plat.image, (plat.rect.x - deslocamento_camera, plat.rect.y))
+        for buraco in self.level.buracos:
+            self.tela.blit(buraco.image, (buraco.rect.x - deslocamento_camera, buraco.rect.y))
+        for pedra in self.level.pedras:
+            self.tela.blit(pedra.image, (pedra.rect.x - deslocamento_camera, pedra.rect.y))
+        
+        # Desenha os grupos de sprites
+        self.grupoInimigo.draw(self.tela)
+        self.grupoPlayer.draw(self.tela)
     
-    # --------------------------------------------------
-    # ATUALIZAÇÃO DOS SPRITES
-    # --------------------------------------------------
-    globalPlayer.update(dt)
-    globalInimigo.update(dt)
+        if self.game_over:
+            fonte = pygame.font.SysFont("Arial", 36)
+            texto = fonte.render("Game Over! Pressione R para reiniciar", True, (255, 0, 0))
+            self.tela.blit(texto, (50, SCREEN_HEIGHT // 2))
     
-    # --------------------------------------------------
-    # DETECÇÃO DE COLISÃO PARA APLICAR DANO
-    # --------------------------------------------------
-    if prota.estado_atual == 'atacando' and prota.rect.colliderect(skeleton.rect):
-        skeleton.take_damage(20)
-        pontuacao += 20
-    
-    # --------------------------------------------------
-    # CONDIÇÃO DE GAME OVER
-    # --------------------------------------------------
-    if prota.vidas <= 0:
-        game_over = True
-    
-    # --------------------------------------------------
-    # DESENHO NA TELA
-    # --------------------------------------------------
-    screen.fill((255, 255, 255))
-    for idx, camada in enumerate(camadas):
-        screen.blit(camada, (x_positions[idx], 0))
-        screen.blit(camada, (x_positions[idx] + camada.get_width(), 0))
-    
-    globalInimigo.draw(screen)
-    globalPlayer.draw(screen)
-    
-    if game_over:
-        font = pygame.font.SysFont("Arial", 36)
-        text = font.render("Game Over! Pressione R para reiniciar", True, (255, 0, 0))
-        screen.blit(text, (50, screen_height//2))
-    
-    pygame.display.flip()
+        pygame.display.flip()
+        
+    def executar(self):
+        while True:
+            dt = self.relogio.tick(FPS) / 1000.0
+            self.tratar_eventos(dt)
+            self.atualizar(dt)
+            self.desenhar()
+
+# Cria uma instância global de Jogo para acesso nas classes
+jogo = Jogo()
+
+if __name__ == "__main__":
+    jogo.executar()
